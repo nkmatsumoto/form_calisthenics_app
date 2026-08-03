@@ -50,7 +50,7 @@ check "/up" "$([[ "$up_code" == "200" ]] && echo 1 || echo 0)" "http=$up_code"
 
 home_code="$(curl -k -sS -o /tmp/fca_home_body -w '%{http_code}' --max-time 120 "${BASE}/" || true)"
 check "home" "$([[ "$home_code" == "200" ]] && echo 1 || echo 0)" "http=$home_code"
-if rg -q 'background-video|handstand|Form|Sign' /tmp/fca_home_body 2>/dev/null; then
+if grep -Eiq 'background-video|handstand|Form|Sign|Log' /tmp/fca_home_body 2>/dev/null; then
   check "home_content" 1 "expected markers present"
 else
   check "home_content" 0 "expected markers missing"

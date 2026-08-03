@@ -7,12 +7,14 @@ This runbook documents the Render and Neon archive environment for Form Calisthe
 | Component | Production service |
 | --- | --- |
 | Source repository | `nkmatsumoto/form_calisthenics_app`, branch `master` |
-| Rails application | Free Render Docker Web Service, Ohio |
+| Live URL | https://form-calisthenics-app.onrender.com |
+| Rails application | Free Render Docker Web Service, Ohio (`srv-d9nu50jncjis73at11t0`) |
 | PostgreSQL | Neon Free, PostgreSQL 16, AWS US East 2 |
 | Production database | `form_calisthenics_app`, owned by `form_calisthenics_app_owner` |
-| Neon project | `form-calisthenics-app` |
+| Neon project | `form-calisthenics-app` (`holy-hill-12774116`), branch `main` |
 | Video storage | Cloudinary through Active Storage |
 | Health endpoint | `GET /up` |
+| Auto-deploy | off (manual deploys only) |
 
 The Render service uses the repository's multi-stage `Dockerfile`. Its entrypoint runs `bin/rails db:prepare` before starting Rails. Restored production databases already contain `ar_internal_metadata`, so prepare does not re-seed.
 

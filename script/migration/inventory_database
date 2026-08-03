@@ -16,15 +16,16 @@ OUT_DIR="${OUT_DIR:-}"
 
 case "$LABEL" in
   source)
-    URL="${DATABASE_URL:-${SOURCE_DATABASE_URL:-}}"
+    # Prefer the label-specific URL so a leftover DATABASE_URL cannot point inventory at the wrong host.
+    URL="${SOURCE_DATABASE_URL:-${DATABASE_URL:-}}"
     assert_source_url "$URL"
     ;;
   rehearsal)
-    URL="${DATABASE_URL:-${REHEARSAL_DATABASE_URL:-}}"
+    URL="${REHEARSAL_DATABASE_URL:-${DATABASE_URL:-}}"
     assert_neon_url "$URL" "rehearsal"
     ;;
   target|production)
-    URL="${DATABASE_URL:-${TARGET_DATABASE_URL:-}}"
+    URL="${TARGET_DATABASE_URL:-${DATABASE_URL:-}}"
     assert_neon_url "$URL" "target"
     ;;
   *)
