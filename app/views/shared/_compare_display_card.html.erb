@@ -18,11 +18,7 @@
     </div>
   </div>
   <% if exercise_set&.video&.attached? %>
-    <%# if exercise_set.workout_session.start_time.today? %>
-    <% if Cloudinary::Api.resources(resource_type: 'raw')['resources'].map { |hash| hash['public_id'].split('.').first }.include?(exercise_set.video.key) %>
-      <%= cl_video_tag exercise_set&.video&.key, resource_type: 'raw', controls: false, :playsinline => true, muted: true, autoplay: true, loop: true, class: "video-wrapper" %>
-    <% else %>
-      <%= cl_video_tag exercise_set&.video&.key, resource_type: 'video', controls: false, :playsinline => true, muted: true, autoplay: true, loop: true, class: "video-wrapper" %>
-    <% end %>
+    <%= exercise_set_video_tag exercise_set, loop: true, class: "video-wrapper" %>
   <% end %>
 </div>
+

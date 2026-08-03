@@ -1,6 +1,6 @@
 <div>
   <% if exercise_set.video.attached? %>
-    <%= cl_video_tag exercise_set.video.key, width: 390, resource_type: 'raw', controls: false, :playsinline => true, muted: true, autoplay: true, class: 'videoreplay' %>
+    <%= exercise_set_video_tag exercise_set, width: 390, class: "videoreplay" %>
   <% end %>
   <%= hidden_field_tag :exercise_id, exercise_set.id %>
 </div>
