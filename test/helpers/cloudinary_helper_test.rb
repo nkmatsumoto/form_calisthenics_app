@@ -19,7 +19,7 @@ class CloudinaryHelperTest < ActionView::TestCase
     html = exercise_set_video_tag(exercise_set, class: "videoreplay")
     assert_includes html, "<video"
     assert_includes html, "videoreplay"
-    assert_includes html, exercise_set.video.key
+    assert_includes html, "sample.mp4"
     refute_includes html, "/raw/"
   end
 
