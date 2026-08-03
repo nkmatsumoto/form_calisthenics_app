@@ -12,16 +12,23 @@ Current status for the Form Calisthenics Render + Neon migration.
 - Role `form_calisthenics_app_owner` and database `form_calisthenics_app`
 - Rehearsal branch `migration-rehearsal` restored with full parity PASS
 
-## In progress / next gates
+## Done since previous handoff
 
-1. Push branch and open draft PR with sanitized evidence
-2. Create Render Free Docker service in workspace `LeWagon Portfolio`
-3. Set secrets from Heroku (`CLOUDINARY_URL`, `SECRET_KEY_BASE`) and rehearsal Neon pooled `DATABASE_URL`
-4. Temporarily deploy the migration branch SHA, run `smoke_render` and browser checks
-5. Merge to `master`, freeze Heroku writes, final dump/restore to Neon production branch, switch Render `DATABASE_URL`, redeploy exact `master` SHA
-6. Ask for explicit approval before deleting Heroku resources
+- Draft PR: https://github.com/nkmatsumoto/form_calisthenics_app/pull/71
+- Render service live: https://form-calisthenics-app.onrender.com (`srv-d9nu50jncjis73at11t0`)
+- Deployed SHA: `eb25dbb` on branch `codex/render-neon-migration`
+- Rehearsal Neon pooled URL configured as Render `DATABASE_URL`
+- Anonymous + authenticated rehearsal smoke checks passed; temporary smoke records removed
 
-## Credentials needed only at gates
+## Next gates (need owner approval)
 
-- Render env var entry if CLI cannot set secrets from local Heroku config without confirmation
-- Explicit approval before Heroku maintenance mode and before irreversible Heroku deletion
+1. Merge PR #71 into `master`
+2. Enable Heroku maintenance mode (planned write freeze)
+3. Final dump → restore into Neon production branch `form_calisthenics_app`
+4. Point Render `DATABASE_URL` at production Neon pooled URL and deploy exact merged `master` SHA
+5. Separate explicit approval before deleting Heroku app / Essential-0 database
+
+## Credentials / approvals needed
+
+- Explicit approval before Heroku maintenance mode
+- Explicit approval before irreversible Heroku deletion

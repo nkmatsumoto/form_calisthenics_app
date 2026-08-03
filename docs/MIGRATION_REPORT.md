@@ -91,10 +91,14 @@ Documented pre-existing defects (not migration regressions):
 | Workflow | Status |
 | --- | --- |
 | Rehearsal DB restore + parity | PASS |
-| Render rehearsal deploy | in progress / pending URL |
-| Authenticated browser workflows on Render | pending deploy |
-| Final production Neon restore | pending cutover |
+| Render rehearsal deploy | PASS — `https://form-calisthenics-app.onrender.com` SHA `eb25dbb` |
+| Anonymous HTTP smoke (`smoke_render`) | PASS (7/7) |
+| Authenticated dashboard/calendar/sessions/compare/video set | PASS |
+| Temporary tagged workout create + cleanup | PASS |
+| Final production Neon restore | pending cutover approval |
 | Heroku cleanup | not approved yet |
+
+Render service id: `srv-d9nu50jncjis73at11t0` (Free, Ohio, Docker).
 
 ## Rollback procedure
 

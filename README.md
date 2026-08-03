@@ -6,10 +6,11 @@ This repository is retained as a faithful reference of the original Le Wagon Rai
 
 ## Live archive
 
-- Planned Render service: `form-calisthenics-app` (Free, Ohio, Docker)
+- Render: https://form-calisthenics-app.onrender.com (Free, Ohio, Docker)
 - Health check: `GET /up`
 - Database: Neon Free PostgreSQL 16 (`form_calisthenics_app`)
 - Media: existing Cloudinary Active Storage videos
+- Migration PR: https://github.com/nkmatsumoto/form_calisthenics_app/pull/71
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for steady-state operations and [`docs/MIGRATION_REPORT.md`](docs/MIGRATION_REPORT.md) for migration evidence.
 
