@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# Capture a sanitized inventory for a PostgreSQL database URL.
+# Usage: DATABASE_URL=... OUT_DIR=... LABEL=source ./inventory_database
+# Or: SOURCE_DATABASE_URL / TARGET_DATABASE_URL / REHEARSAL_DATABASE_URL via LABEL.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=script/migration/_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
+require_cmd psql
+require_cmd python3
+
+LABEL="${LABEL:-source}"
+OUT_DIR="${OUT_DIR:-}"
+
+case "$LABEL" in
+  source)
+    URL="${DATABASE_URL:-${SOURCE_DATABASE_URL:-}}"
+    assert_source_url "$URL"
+    ;;
+  rehearsal)
+    URL="${DATABASE_URL:-${REHEARSAL_DATABASE_URL:-}}"
+    assert_neon_url "$URL" "rehearsal"
+    ;;
+  target|production)
+    URL="${DATABASE_URL:-${TARGET_DATABASE_URL:-}}"
+    assert_neon_url "$URL" "target"
+    ;;
+  *)
+    URL="${DATABASE_URL:-}"
+    [[ -n "$URL" ]] || die "DATABASE_URL or LABEL-specific URL required"
+    ;;
+esac
+
+[[ -n "$URL" ]] || die "database URL for label=$LABEL is empty"
+[[ -n "$OUT_DIR" ]] || die "OUT_DIR is required"
+mkdir -p "$OUT_DIR"
+
+export INVENTORY_URL="$URL"
+export INVENTORY_OUT_DIR="$OUT_DIR"
+export INVENTORY_LABEL="$LABEL"
+
+python3 <<'PY'
+import hashlib, json, os, subprocess, sys
+from pathlib import Path
+
+url = os.environ["INVENTORY_URL"]
+out_dir = Path(os.environ["INVENTORY_OUT_DIR"])
+label = os.environ["INVENTORY_LABEL"]
+
+def redact(text: str) -> str:
+    return text.replace(url, "[REDACTED_DATABASE_URL]")
+
+def q(sql: str) -> str:
+    try:
+        out = subprocess.check_output(
+            ["psql", url, "-v", "ON_ERROR_STOP=1", "-At", "-F", "|", "-c", sql],
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as exc:
+        sys.stderr.write(redact(exc.output or str(exc)) + "\n")
+        raise SystemExit(1)
+    return out.strip()
+
+tables = [t for t in q("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1").splitlines() if t]
+counts = {t: int(q(f'SELECT count(*) FROM "{t}"')) for t in tables}
+migrations = [m for m in q("SELECT version FROM schema_migrations ORDER BY 1").splitlines() if m]
+seqs = [s for s in q(
+    "SELECT sequencename || '|' || coalesce(last_value::text, '') "
+    "FROM pg_sequences WHERE schemaname='public' ORDER BY 1"
+).splitlines() if s]
+fks = [s for s in q(
+    "SELECT conname || '|' || conrelid::regclass::text || '|' || confrelid::regclass::text "
+    "FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace ORDER BY 1"
+).splitlines() if s]
+indexes = [s for s in q(
+    "SELECT indexname || '|' || tablename FROM pg_indexes WHERE schemaname='public' ORDER BY 1"
+).splitlines() if s]
+columns = [s for s in q(
+    "SELECT table_name||'.'||column_name||':'||data_type "
+    "FROM information_schema.columns WHERE table_schema='public' "
+    "AND table_name NOT LIKE 'pg_stat_statements%' "
+    "ORDER BY table_name, ordinal_position"
+).splitlines() if s]
+
+as_agg = []
+if "active_storage_blobs" in counts:
+    as_agg = [s for s in q(
+        "SELECT service_name || '|' || content_type || '|' || count(*)::text || '|' || "
+        "coalesce(sum(byte_size),0)::text "
+        "FROM active_storage_blobs "
+        "GROUP BY service_name, content_type "
+        "ORDER BY service_name, content_type"
+    ).splitlines() if s]
+
+def stable_hash(table: str, expr: str) -> str:
+    raw = q(f'SELECT coalesce(({expr}), \'\') FROM "{table}"')
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+hash_specs = {
+    "users": "string_agg(id::text || ':' || encrypted_password, ',' ORDER BY id)",
+    "workouts": "string_agg(id::text || ':' || coalesce(name,''), ',' ORDER BY id)",
+    "workout_sessions": "string_agg(id::text || ':' || user_id::text || ':' || workout_id::text, ',' ORDER BY id)",
+    "exercises": "string_agg(id::text || ':' || coalesce(name,''), ',' ORDER BY id)",
+    "exercise_sets": "string_agg(id::text || ':' || exercise_id::text || ':' || coalesce(workout_session_id::text,''), ',' ORDER BY id)",
+    "exercise_assignments": "string_agg(id::text || ':' || exercise_id::text || ':' || workout_id::text, ',' ORDER BY id)",
+    "active_storage_blobs": (
+        "string_agg(id::text || ':' || key || ':' || filename || ':' || coalesce(content_type,'') || ':' || "
+        "byte_size::text || ':' || coalesce(checksum,'') || ':' || service_name, ',' ORDER BY id)"
+    ),
+    "active_storage_attachments": (
+        "string_agg(id::text || ':' || name || ':' || record_type || ':' || record_id::text || ':' || "
+        "blob_id::text, ',' ORDER BY id)"
+    ),
+}
+hashes = {table: stable_hash(table, expr) for table, expr in hash_specs.items() if table in counts}
+as_keys = (
+    stable_hash("active_storage_blobs", "string_agg(key, ',' ORDER BY key)")
+    if "active_storage_blobs" in counts
+    else ""
+)
+
+by_exercise = []
+by_workout = []
+by_user = []
+if "exercise_sets" in counts:
+    by_exercise = [s for s in q(
+        "SELECT exercise_id::text || '|' || count(*)::text FROM exercise_sets GROUP BY exercise_id ORDER BY exercise_id"
+    ).splitlines() if s]
+if "workout_sessions" in counts:
+    by_workout = [s for s in q(
+        "SELECT workout_id::text || '|' || count(*)::text FROM workout_sessions GROUP BY workout_id ORDER BY workout_id"
+    ).splitlines() if s]
+    by_user = [s for s in q(
+        "SELECT user_id::text || '|' || count(*)::text FROM workout_sessions GROUP BY user_id ORDER BY user_id"
+    ).splitlines() if s]
+
+inv = {
+    "label": label,
+    "host": subprocess.check_output(
+        ["python3", "-c", "from urllib.parse import urlparse; import os; print(urlparse(os.environ['INVENTORY_URL']).hostname or '')"],
+        text=True,
+    ).strip(),
+    "database": subprocess.check_output(
+        ["python3", "-c", "from urllib.parse import urlparse; import os; print((urlparse(os.environ['INVENTORY_URL']).path or '').lstrip('/').split('?')[0])"],
+        text=True,
+    ).strip(),
+    "tables": counts,
+    "migrations": migrations,
+    "sequences": seqs,
+    "foreign_keys": fks,
+    "indexes": indexes,
+    "columns": columns,
+    "active_storage_aggregates": as_agg,
+    "active_storage_keys_hash": as_keys,
+    "stable_hashes": hashes,
+    "counts_by_exercise_id": by_exercise,
+    "counts_by_workout_id": by_workout,
+    "counts_by_user_id": by_user,
+}
+
+json_path = out_dir / f"{label}_inventory.json"
+md_path = out_dir / f"{label}_inventory.md"
+json_path.write_text(json.dumps(inv, indent=2) + "\n")
+
+lines = [
+    f"# {label} inventory (sanitized)",
+    f"Host: {inv['host']}",
+    f"Database: {inv['database']}",
+    f"Tables: {len(counts)}",
+    "",
+]
+lines += [f"{k}: {v}" for k, v in counts.items()]
+lines += ["", f"Migrations ({len(migrations)}):"] + migrations
+lines += ["", "Active Storage aggregates:"] + (as_agg or ["(none)"])
+if as_keys:
+    lines += ["", f"Active Storage keys hash: {as_keys}"]
+lines += ["", "Stable hashes:"] + [f"{k}: {v}" for k, v in hashes.items()]
+lines += [
+    "",
+    f"Sequences: {len(seqs)}",
+    f"Foreign keys: {len(fks)}",
+    f"Indexes: {len(indexes)}",
+    f"Columns: {len(columns)}",
+]
+md_path.write_text("\n".join(lines) + "\n")
+print(md_path.read_text())
+print(f"Wrote {json_path}")
+print(f"Wrote {md_path}")
+PY

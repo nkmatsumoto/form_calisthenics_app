@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# HTTP-level smoke checks against a Render deployment.
+# Requires RENDER_BASE_URL. Optional SMOKE_EMAIL / SMOKE_PASSWORD for auth checks.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=script/migration/_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
+require_cmd curl
+require_env RENDER_BASE_URL
+
+BASE="${RENDER_BASE_URL%/}"
+[[ "$BASE" == https://* ]] || die "RENDER_BASE_URL must be https://"
+
+COOKIE_JAR="$(mktemp)"
+REPORT_DIR="${OUT_DIR:-.}"
+mkdir -p "$REPORT_DIR"
+trap 'rm -f "$COOKIE_JAR"' EXIT
+
+pass=0
+fail=0
+results=()
+
+check() {
+  local name="$1"
+  local ok="$2"
+  local detail="${3:-}"
+  if [[ "$ok" == "1" ]]; then
+    pass=$((pass + 1))
+    results+=("PASS|$name|$detail")
+    printf 'PASS: %s %s\n' "$name" "$detail"
+  else
+    fail=$((fail + 1))
+    results+=("FAIL|$name|$detail")
+    printf 'FAIL: %s %s\n' "$name" "$detail"
+  fi
+}
+
+# Cold-start tolerant /up
+up_code="000"
+for attempt in 1 2 3 4 5 6; do
+  up_code="$(curl -k -sS -o /tmp/fca_up_body -w '%{http_code}' --max-time 120 "${BASE}/up" || true)"
+  if [[ "$up_code" == "200" ]]; then
+    break
+  fi
+  sleep 10
+done
+check "/up" "$([[ "$up_code" == "200" ]] && echo 1 || echo 0)" "http=$up_code"
+
+home_code="$(curl -k -sS -o /tmp/fca_home_body -w '%{http_code}' --max-time 120 "${BASE}/" || true)"
+check "home" "$([[ "$home_code" == "200" ]] && echo 1 || echo 0)" "http=$home_code"
+if rg -q 'background-video|handstand|Form|Sign' /tmp/fca_home_body 2>/dev/null; then
+  check "home_content" 1 "expected markers present"
+else
+  check "home_content" 0 "expected markers missing"
+fi
+
+login_code="$(curl -k -sS -o /tmp/fca_login_body -w '%{http_code}' --max-time 60 "${BASE}/users/sign_in" || true)"
+check "sign_in_page" "$([[ "$login_code" == "200" ]] && echo 1 || echo 0)" "http=$login_code"
+
+signup_code="$(curl -k -sS -o /tmp/fca_signup_body -w '%{http_code}' --max-time 60 "${BASE}/users/sign_up" || true)"
+check "sign_up_page" "$([[ "$signup_code" == "200" ]] && echo 1 || echo 0)" "http=$signup_code"
+
+reset_code="$(curl -k -sS -o /tmp/fca_reset_body -w '%{http_code}' --max-time 60 "${BASE}/users/password/new" || true)"
+check "password_reset_page" "$([[ "$reset_code" == "200" ]] && echo 1 || echo 0)" "http=$reset_code"
+
+dash_anon_code="$(curl -k -sS -o /tmp/fca_dash_anon -w '%{http_code}' --max-time 60 "${BASE}/dashboard" || true)"
+# Devise should redirect anonymous users
+check "dashboard_requires_auth" "$([[ "$dash_anon_code" == "302" || "$dash_anon_code" == "401" ]] && echo 1 || echo 0)" "http=$dash_anon_code"
+
+if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
+  # Extract CSRF token from login page
+  token="$(python3 - <<'PY'
+import re
+html=open('/tmp/fca_login_body',encoding='utf-8',errors='ignore').read()
+m=re.search(r'name="authenticity_token" value="([^"]+)"', html)
+print(m.group(1) if m else "")
+PY
+)"
+  [[ -n "$token" ]] || die "could not extract authenticity_token"
+
+  auth_code="$(curl -k -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o /tmp/fca_auth_body -w '%{http_code}' \
+    --max-time 60 \
+    -X POST "${BASE}/users/sign_in" \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode "authenticity_token=${token}" \
+    --data-urlencode "user[email]=${SMOKE_EMAIL}" \
+    --data-urlencode "user[password]=${SMOKE_PASSWORD}" \
+    --data-urlencode "user[remember_me]=0" || true)"
+  check "sign_in" "$([[ "$auth_code" == "302" || "$auth_code" == "200" ]] && echo 1 || echo 0)" "http=$auth_code"
+
+  dash_code="$(curl -k -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o /tmp/fca_dash -w '%{http_code}' --max-time 60 "${BASE}/dashboard" || true)"
+  check "dashboard" "$([[ "$dash_code" == "200" ]] && echo 1 || echo 0)" "http=$dash_code"
+
+  cal_code="$(curl -k -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o /tmp/fca_cal -w '%{http_code}' --max-time 60 "${BASE}/calendar" || true)"
+  check "calendar" "$([[ "$cal_code" == "200" ]] && echo 1 || echo 0)" "http=$cal_code"
+
+  workouts_code="$(curl -k -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o /tmp/fca_workouts -w '%{http_code}' --max-time 60 "${BASE}/workouts" || true)"
+  check "workouts" "$([[ "$workouts_code" == "200" ]] && echo 1 || echo 0)" "http=$workouts_code"
+else
+  printf 'smoke_render: SMOKE_EMAIL/SMOKE_PASSWORD unset; skipping authenticated checks\n'
+fi
+
+{
+  echo "# smoke_render result"
+  echo "BASE_HOST=$(python3 - <<PY
+from urllib.parse import urlparse
+print(urlparse("${BASE}").hostname)
+PY
+)"
+  echo "pass=${pass}"
+  echo "fail=${fail}"
+  for row in "${results[@]}"; do
+    echo "$row"
+  done
+} > "${REPORT_DIR}/smoke_render.txt"
+
+printf 'smoke_render: pass=%s fail=%s\n' "$pass" "$fail"
+[[ "$fail" -eq 0 ]] || exit 1
+printf 'smoke_render: OK\n'

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Build a pg_restore list that keeps public application objects and excludes
+# Heroku _heroku schema objects, event triggers, and provider extensions.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=script/migration/_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
+LIST_IN=""
+LIST_OUT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --list)
+      LIST_IN="${2:-}"
+      shift 2
+      ;;
+    --out)
+      LIST_OUT="${2:-}"
+      shift 2
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "$LIST_IN" && -f "$LIST_IN" ]] || die "--list file is required"
+[[ -n "$LIST_OUT" ]] || die "--out path is required"
+
+export BUILD_LIST_IN="$LIST_IN"
+export BUILD_LIST_OUT="$LIST_OUT"
+
+python3 <<'PY'
+import os
+from pathlib import Path
+
+src = Path(os.environ["BUILD_LIST_IN"]).read_text().splitlines()
+out = []
+excluded = []
+
+for line in src:
+    if line.startswith(";"):
+        out.append(line)
+        continue
+    lower = line.lower()
+    if any(tok in lower for tok in ("_heroku", "event trigger", "event-trigger", "pg_stat_statements")):
+        excluded.append(line)
+        continue
+    parts = [p.strip() for p in line.split(";")]
+    # 123; 3079 12345 EXTENSION - plpgsql
+    if len(parts) >= 3 and parts[2].upper() == "EXTENSION":
+        excluded.append(line)
+        continue
+    if "comment - extension" in lower:
+        excluded.append(line)
+        continue
+    out.append(line)
+
+Path(os.environ["BUILD_LIST_OUT"]).write_text("\n".join(out) + "\n")
+print(f"build_restore_list: kept {len(out)} lines, excluded {len(excluded)}")
+for line in excluded[:40]:
+    print(f"EXCL {line}")
+if len(excluded) > 40:
+    print(f"... and {len(excluded) - 40} more")
+PY
