@@ -11,32 +11,36 @@ Sanitized evidence for the archive migration. No credentials, emails, or connect
 | Target app | Render Free Docker Web Service `form-calisthenics-app`, Ohio |
 | Target database | Neon Free project `form-calisthenics-app` (`holy-hill-12774116`), AWS US East 2, PostgreSQL 16 |
 | Application database | `form_calisthenics_app` owned by `form_calisthenics_app_owner` |
+| Neon production branch | `main` (`br-spring-brook-ay50hesa`) |
 | Media | Existing Cloudinary Active Storage keys retained (no re-upload) |
 
-## Git and runtime baseline
+## Git and deployed SHAs
 
 | Item | Value |
 | --- | --- |
-| Migration branch | `codex/render-neon-migration` |
-| Baseline `master` commit at branch creation | `37afa07` |
-| Ruby | 3.3.12 |
-| Rails | 7.1.6 |
-| Puma | 6.6.x |
-| Cloudinary gem | 2.4.x |
-| Action Cable | unused; production adapter `async` |
+| Merged PR | https://github.com/nkmatsumoto/form_calisthenics_app/pull/71 |
+| Merged `master` SHA | `ef5605545690b7f595cdbf3ea4e4629e0b8d0e6e` |
+| Deployed Render SHA | `ef5605545690b7f595cdbf3ea4e4629e0b8d0e6e` |
+| Render URL | https://form-calisthenics-app.onrender.com |
+| Render service id | `srv-d9nu50jncjis73at11t0` |
+| Render branch | `master` |
+| Render auto-deploy | off |
+| Ruby / Rails | 3.3.12 / 7.1.6 |
 
-## Backups (outside Git)
+## Final cutover backups (outside Git)
 
-Directory: `/Users/nkmatsumoto/Backups/form-calisthenics-app/2026-08-02-200457`
+Directory: `/Users/nkmatsumoto/Backups/form-calisthenics-app/2026-08-02-204818-cutover`
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `heroku-managed.dump` | `25fecab4f28e6cb258473bfa78aa9491ce6b9acbee8b37164d6acfcf8544f208` |
-| `form-calisthenics-custom.dump` (PG16 re-capture) | see `SHA256SUMS` in the backup directory |
+| `heroku-managed-final.dump` | `5044cd15dac212f35bac58dbf29df5f851ae62ecf7ab0ea7c1e45cac2821e857` |
+| `form-calisthenics-final-custom.dump` | `1bb7d0e1a1d93e29c9bbc454acc047c8fb16b1ede660061176e45e70e36b2efd` |
 
-Independent custom dump used `--no-owner --no-acl`. Restore list excludes Heroku `_heroku` objects, event triggers, and `pg_stat_statements`.
+Also present: `form-calisthenics-final-public-only.list`, `source_inventory.json`, `target_inventory.json`, `parity_result.json`.
 
-## Sanitized inventories
+Earlier rehearsal backups remain under `2026-08-02-200457/`.
+
+## Sanitized inventories (final)
 
 | Table | Rows |
 | --- | ---: |
@@ -59,61 +63,53 @@ Active Storage aggregates:
 
 ## Parity result
 
-Rehearsal restore onto Neon branch `migration-rehearsal` completed with:
+Final source (Heroku) → target (Neon `main` / `form_calisthenics_app`):
 
 **Status: PASS**
 
-Checked: migrations, table set, every row count, sequences, foreign keys, indexes, application columns, Active Storage aggregates/keys hash, and stable non-PII content hashes for users/workouts/sessions/exercises/sets/assignments/blobs/attachments.
+Checked migrations, table set, every row count, sequences, foreign keys, indexes, application columns, Active Storage aggregates/keys hash, and stable non-PII content hashes.
 
 ## Automated tests
 
-Local result on PostgreSQL 16:
+- Local / CI: **22 runs, 66 assertions, 0 failures**
+- Workflow: `.github/workflows/ci.yml`
 
-- **22 runs, 66 assertions, 0 failures, 0 errors, 0 skips**
+Pre-existing defects (not migration regressions):
 
-Coverage includes `/up`, home, Devise auth flows, dashboard/search, workout and session creation, exercise-set create/update, calendar, compare with one/two sessions, Active Storage disk attachment, stubbed Cloudinary helper behavior, and production config/blueprint smoke checks.
+- Devise registration form omits required `username`
+- `workouts#index` can raise when rendering `shared/workout_card` (`undefined local variable or method index`)
 
-CI workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs tests plus production asset precompile.
+## Smoke-test results (post-cutover)
 
-Documented pre-existing defects (not migration regressions):
-
-- Devise registration form omits required `username`.
-- `workouts#index` can raise when rendering `shared/workout_card` (`undefined local variable or method index`).
-
-## Docker / boot evidence
-
-- Production assets compile with dummy secrets.
-- Docker image `form-calisthenics-app:migration` builds on `aarch64-linux`.
-- Container `/up` returns HTTP 200 when `X-Forwarded-Proto: https` is supplied (Render TLS termination).
-
-## Smoke-test and cutover status
-
-| Workflow | Status |
+| Workflow | Result |
 | --- | --- |
-| Rehearsal DB restore + parity | PASS |
-| Render rehearsal deploy | PASS — `https://form-calisthenics-app.onrender.com` SHA `eb25dbb` |
-| Anonymous HTTP smoke (`smoke_render`) | PASS (7/7) |
-| Authenticated dashboard/calendar/sessions/compare/video set | PASS |
-| Temporary tagged workout create + cleanup | PASS |
-| Final production Neon restore | pending cutover approval |
-| Heroku cleanup | not approved yet |
+| `/up` | PASS (HTTP 200) |
+| Home / Devise pages / auth redirect | PASS |
+| Authenticated dashboard, calendar, workout sessions | PASS |
+| Existing session show, exercise compare, video exercise set | PASS |
+| Temporary tagged workout `CUTOVER_SMOKE_20260802` create + delete | PASS |
+| Temporary smoke user create + delete | PASS |
 
-Render service id: `srv-d9nu50jncjis73at11t0` (Free, Ohio, Docker).
+During smoke, counts briefly included the tagged smoke user/workout (+1 user, +1 workout) and one untagged cutover-time `workout_sessions` row (`id=760`). After cleanup of the tagged smoke records and deletion of session `760`, counts matched the final inventory above.
 
 ## Rollback procedure
 
-1. Leave Heroku app and `postgresql-angular-67421` intact.
-2. Disable Heroku maintenance mode if enabled.
-3. Keep Render on the verified rehearsal database only for diagnosis.
-4. Re-restore from the external custom dump onto a fresh empty Neon `form_calisthenics_app` database if needed.
+1. Heroku app remains in maintenance mode with Essential-0 database intact.
+2. External final dumps + checksums exist under the cutover backup directory.
+3. To roll back public traffic: disable Heroku maintenance mode and point users at the Heroku URL.
+4. Render can be pointed back at a verified Neon branch only for diagnosis.
 
-## Remaining cost if Heroku is retained
+## Heroku cleanup status
 
-- Essential-0 PostgreSQL: up to about $5/month
-- Web dyno charges if the Heroku dyno remains enabled
+**Not deleted.** Explicit deletion approval is still required.
+
+Remaining cost while retained:
+
+- Essential-0 PostgreSQL (`postgresql-angular-67421`): up to about **$5/month**
+- Web dyno for `form-calisthenics-app` if left enabled (currently under maintenance)
 
 ## Known limitations
 
-- Render Free cold starts
-- Neon Free compute suspends after inactivity
-- Archive deployment is a faithful reference of the Le Wagon project, not the future rebuild
+- Render Free cold starts (up to ~1 minute)
+- Neon Free compute may suspend after inactivity
+- This archive is a faithful reference of the Le Wagon project, not the future rebuild

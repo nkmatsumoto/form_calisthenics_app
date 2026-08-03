@@ -1,34 +1,22 @@
 # Migration handoff
 
-Current status for the Form Calisthenics Render + Neon migration.
+Cutover complete. Waiting only on explicit Heroku deletion approval.
 
 ## Done
 
-- Branch `codex/render-neon-migration` with portable Rails/Docker/`render.yaml` changes
-- Migration scripts under `script/migration/`
-- Regression tests (22 passing) and GitHub Actions CI workflow
-- External backups + sanitized inventories in `/Users/nkmatsumoto/Backups/form-calisthenics-app/2026-08-02-200457`
-- Neon project `form-calisthenics-app` (`holy-hill-12774116`) in AWS US East 2
-- Role `form_calisthenics_app_owner` and database `form_calisthenics_app`
-- Rehearsal branch `migration-rehearsal` restored with full parity PASS
+- PR #71 merged to `master` at `ef56055`
+- Neon production `main` database `form_calisthenics_app` restored with source parity PASS
+- Render https://form-calisthenics-app.onrender.com serving `ef56055` with production Neon pooled `DATABASE_URL`
+- Render branch `master`, auto-deploy off
+- Heroku `form-calisthenics-app` left in **maintenance mode** (recoverable; not deleted)
+- Final backups under `/Users/nkmatsumoto/Backups/form-calisthenics-app/2026-08-02-204818-cutover`
 
-## Done since previous handoff
+## Remaining gate
 
-- Draft PR: https://github.com/nkmatsumoto/form_calisthenics_app/pull/71
-- Render service live: https://form-calisthenics-app.onrender.com (`srv-d9nu50jncjis73at11t0`)
-- Deployed SHA: `eb25dbb` on branch `codex/render-neon-migration`
-- Rehearsal Neon pooled URL configured as Render `DATABASE_URL`
-- Anonymous + authenticated rehearsal smoke checks passed; temporary smoke records removed
+Ask owner to approve irreversible deletion of:
 
-## Next gates (need owner approval)
+1. Heroku web dyno for `form-calisthenics-app`
+2. Essential-0 add-on `postgresql-angular-67421`
+3. Heroku app `form-calisthenics-app`
 
-1. Merge PR #71 into `master`
-2. Enable Heroku maintenance mode (planned write freeze)
-3. Final dump → restore into Neon production branch `form_calisthenics_app`
-4. Point Render `DATABASE_URL` at production Neon pooled URL and deploy exact merged `master` SHA
-5. Separate explicit approval before deleting Heroku app / Essential-0 database
-
-## Credentials / approvals needed
-
-- Explicit approval before Heroku maintenance mode
-- Explicit approval before irreversible Heroku deletion
+Until then, Essential-0 can continue charging up to about $5/month.
