@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Restore a scoped custom dump into an empty Neon database.
+# Uses TARGET_DATABASE_URL or REHEARSAL_DATABASE_URL (via MODE=rehearsal|target).
+# Never runs pg_restore --clean. Never loads schema via Rails first.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=script/migration/_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
+require_cmd pg_restore
+require_cmd psql
+
+MODE="${MODE:-rehearsal}"
+DUMP_FILE="${DUMP_FILE:-}"
+LIST_FILE="${LIST_FILE:-}"
+
+case "$MODE" in
+  rehearsal)
+    URL="${REHEARSAL_DATABASE_URL:-}"
+    LABEL="rehearsal"
+    ;;
+  target|production)
+    URL="${TARGET_DATABASE_URL:-}"
+    LABEL="target"
+    ;;
+  *)
+    die "MODE must be rehearsal or target"
+    ;;
+esac
+
+[[ -n "$URL" ]] || die "database URL for MODE=$MODE is empty"
+assert_neon_url "$URL" "$MODE"
+[[ -n "$DUMP_FILE" && -f "$DUMP_FILE" ]] || die "DUMP_FILE is required"
+[[ -n "$LIST_FILE" && -f "$LIST_FILE" ]] || die "LIST_FILE is required"
+
+# Refuse nonempty application targets.
+table_count="$(psql_q "$URL" "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('schema_migrations')")"
+# Allow zero tables; also allow only empty schema with no app tables.
+app_tables="$(psql_q "$URL" "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('users','workouts','exercise_sets','active_storage_blobs')")"
+[[ "$app_tables" == "0" ]] || die "$MODE database already contains application tables; refusing restore"
+
+printf 'restore_target: restoring into %s database form_calisthenics_app (host=%s)\n' "$MODE" "$(db_host "$URL")"
+
+# Prefer PostgreSQL 16 clients via Docker for Neon restores.
+set +e
+if command -v docker >/dev/null 2>&1; then
+  dump_dir="$(cd "$(dirname "$DUMP_FILE")" && pwd)"
+  dump_base="$(basename "$DUMP_FILE")"
+  list_base="$(basename "$LIST_FILE")"
+  restore_out="$(
+    docker run --rm \
+      -e TARGET_RESTORE_URL="$URL" \
+      -v "${dump_dir}:/backup" \
+      postgres:16 \
+      bash -c "pg_restore --verbose --no-owner --no-acl --dbname=\"\$TARGET_RESTORE_URL\" --use-list=/backup/${list_base} /backup/${dump_base}" 2>&1
+  )"
+  restore_status=$?
+else
+  restore_out="$(pg_restore --verbose --no-owner --no-acl \
+    --dbname="$URL" \
+    --use-list="$LIST_FILE" \
+    "$DUMP_FILE" 2>&1)"
+  restore_status=$?
+fi
+set -e
+
+printf '%s\n' "$(redact "$restore_out")" | sed '/password/Id'
+
+# pg_restore returns 1 for warnings; treat only hard failures as fatal.
+if [[ $restore_status -gt 1 ]]; then
+  die "pg_restore failed with status $restore_status"
+fi
+
+# Common non-fatal: extension already exists. Fail if app tables missing after restore.
+users_count="$(psql_q "$URL" "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users'")"
+[[ "$users_count" == "1" ]] || die "restore did not create users table"
+
+if [[ -n "${OUT_DIR:-}" ]]; then
+  LABEL="$LABEL" OUT_DIR="$OUT_DIR" DATABASE_URL="$URL" "${SCRIPT_DIR}/inventory_database"
+fi
+
+printf 'restore_target: OK (MODE=%s)\n' "$MODE"

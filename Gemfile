@@ -1,9 +1,9 @@
 source "https://rubygems.org"
 
-ruby "3.1.2"
+ruby "3.3.12"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem "rails", "~> 7.1.3", ">= 7.1.3.4"
+gem "rails", "~> 7.1.6"
 
 # The original asset pipeline for Rails [https://github.com/rails/sprockets-rails]
 gem "sprockets-rails"
@@ -12,7 +12,7 @@ gem "sprockets-rails"
 gem "pg", "~> 1.1"
 
 # Use the Puma web server [https://github.com/puma/puma]
-gem "puma", ">= 5.0"
+gem "puma", "~> 6.6"
 
 # Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]
 gem "importmap-rails"
@@ -74,12 +74,14 @@ group :test do
   # Use system testing [https://guides.rubyonrails.org/testing.html#system-testing]
   gem "capybara"
   gem "selenium-webdriver"
+  # Rails 7.1 test runner is not compatible with Minitest 6 yet.
+  gem "minitest", "~> 5.25"
 end
 
 # custom gems
 gem 'roo'
 gem 'faker'
-gem 'cloudinary'
+gem "cloudinary", "~> 2.0"
 gem "pg_search"
 gem "simple_calendar"
 gem "chartkick"
