@@ -5,10 +5,14 @@
     <%= text_field_tag :query, params[:query], class: "form-control rounded-pill", placeholder: "Search by exercise or workout", style: "background-color: white;" %>
     <%= submit_tag "Search", name: "", class: "btn-cool" %>
   <% end %>
-  <h2 class="mt-5">August</h2>
-  <div class="cards">
-    <% @workout_sessions.first(5).each do |workout_session| %>
-      <%= render 'shared/workout_session_card', workout_session: workout_session %>
-    <% end %>
-  </div>
+
+  <% sessions_by_month = @workout_sessions.sort_by { |session| session.start_time || session.created_at }.reverse.group_by { |session| (session.start_time || session.created_at).strftime("%B %Y") } %>
+  <% sessions_by_month.each do |month_label, sessions| %>
+    <h2 class="mt-5"><%= month_label %></h2>
+    <div class="cards">
+      <% sessions.each do |workout_session| %>
+        <%= render 'shared/workout_session_card', workout_session: workout_session %>
+      <% end %>
+    </div>
+  <% end %>
 </div>

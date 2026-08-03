@@ -3,13 +3,13 @@ class WorkoutSessionsController < ApplicationController
   def index
     if params[:workout_id].present?
       @workout = Workout.find(params[:workout_id])
-      @workout_sessions = WorkoutSession.where(workout: @workout).order(created_at: :desc)
+      @workout_sessions = WorkoutSession.where(workout: @workout).order(start_time: :desc, created_at: :desc)
     else
-      @workout_sessions = WorkoutSession.all
-      @workout_sessions = WorkoutSession.order(created_at: :desc)
+      @workout_sessions = WorkoutSession.order(start_time: :desc, created_at: :desc)
       @workout_sesssion = WorkoutSession.new
     end
   end
+
 
   def new
     @workout_session = WorkoutSession.new
